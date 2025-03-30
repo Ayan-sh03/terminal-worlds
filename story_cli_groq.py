@@ -2,6 +2,10 @@ import os
 import sys
 from groq import Groq, RateLimitError, APIError # Import necessary Groq classes
 from pick import pick # Add pick import
+from colorama import init, Fore, Style # Import colorama
+
+# Initialize colorama
+init(autoreset=True) # Autoreset ensures color resets after each print
 
 # --- Configuration ---
 # Recommended: Load API key from environment variable
@@ -17,38 +21,39 @@ def initialize_groq_client():
         # Try getting from environment variable first
         GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
         if not GROQ_API_KEY:
-            GROQ_API_KEY = input("Please enter your Groq API Key: ")
+            GROQ_API_KEY = input(Fore.YELLOW + "Please enter your Groq API Key: " + Style.RESET_ALL) # Yellow prompt
             if not GROQ_API_KEY:
-                print("API Key is required. Exiting.")
+                print(Fore.RED + "API Key is required. Exiting.") # Red error
                 sys.exit(1)
 
+    # Note: Adding try...except block here would be ideal for robust error handling with colors
     client = Groq(api_key=GROQ_API_KEY)
     # Test connection and fetch models
-    print("Fetching available models...")
+    print(Fore.BLUE + "Fetching available models...") # Blue status
     models_response = client.models.list()
-    # print(models_response)
+    # print(models_response) # Keep debug print for now
     # Filter for models likely suitable for chat/instruction-following and sort them
     available_models = sorted([
         model.id for model in models_response.data
         if "chat" in model.id or "instruct" in model.id or "llama" in model.id or "mixtral" in model.id
     ])
-    print(available_models)
+    print(available_models) # Keep debug print for now
     if not available_models:
-            print("Warning: No suitable models found or failed to parse model list.")
+            print(Fore.YELLOW + "Warning: No suitable models found or failed to parse model list.") # Yellow warning
             # Let select_groq_model handle the default if list is empty
             available_models = []
 
-    print("Groq client initialized successfully.")
+    print(Fore.BLUE + "Groq client initialized successfully.") # Blue status
     return client, available_models # Return client and models
 
 
 def select_groq_model(models):
     """Uses 'pick' to let the user select a model."""
     if not models:
-        print("Could not fetch models or no suitable models found. Using default: llama3-8b-8192")
+        print(Fore.YELLOW + "Could not fetch models or no suitable models found. Using default: llama3-8b-8192") # Yellow warning
         return "llama3-8b-8192" # Fallback default
 
-    title = "Please choose a Groq model (navigate with arrows, select with Enter):"
+    title = Fore.GREEN + "Please choose a Groq model (navigate with arrows, select with Enter):" + Style.RESET_ALL # Green title
     options = models
     # Try to find a sensible default like llama3-8b
     default_index = 0
@@ -60,10 +65,11 @@ def select_groq_model(models):
 
     try:
         selected_model, index = pick(options, title, indicator='=>', default_index=default_index)
-        print(f"Using model: {selected_model}")
+        print(Fore.BLUE + f"Using model: {selected_model}") # Blue status
         return selected_model
     except Exception as e: # Catch potential errors during pick usage (e.g., user Ctrl+C)
-        print(f"\nError during model selection or selection cancelled: {e}. Using default: llama3-8b-8192")
+        # Using f-string with color codes requires careful concatenation or multiple prints
+        print(Fore.RED + f"\nError during model selection or selection cancelled: {e}. Using default: llama3-8b-8192") # Red error
         return "llama3-8b-8192" # Fallback default
 
 
@@ -82,13 +88,13 @@ def generate_story_part(client, conversation_history, model="llama3-8b-8192"):
         response_content = completion.choices[0].message.content
         return response_content
     except RateLimitError:
-        print("Rate limit reached. Please wait and try again.")
+        print(Fore.RED + "Rate limit reached. Please wait and try again.") # Red error
         return None
     except APIError as e:
-        print(f"Groq API Error during generation: {e}")
+        print(Fore.RED + f"Groq API Error during generation: {e}") # Red error
         return None
     except Exception as e:
-        print(f"An unexpected error occurred during generation: {e}")
+        print(Fore.RED + f"An unexpected error occurred during generation: {e}") # Red error
         return None
 
 # --- Story Logic ---
