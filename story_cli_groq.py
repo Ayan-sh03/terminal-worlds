@@ -3,7 +3,7 @@ import sys
 from groq import Groq, RateLimitError, APIError # Import necessary Groq classes
 from pick import pick # Add pick import
 from colorama import init, Fore, Style # Import colorama
-
+from openai import OpenAI
 # Initialize colorama
 init(autoreset=True) # Autoreset ensures color resets after each print
 
@@ -12,6 +12,8 @@ init(autoreset=True) # Autoreset ensures color resets after each print
 # GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 # Fallback for simple prototype (less secure):
 GROQ_API_KEY = None # Will prompt user if not set
+OPENAI_API_KEY = None # Not used in this script, but can be set for other purposes
+OPENAI_BASE_URL = "https://openrouter.ai/api/v1" # Not used in this script, but can be set for other purposes
 
 # --- Groq Interaction ---
 def initialize_groq_client():
@@ -46,6 +48,22 @@ def initialize_groq_client():
     print(Fore.BLUE + "Groq client initialized successfully.") # Blue status
     return client, available_models # Return client and models
 
+def initialize_openai_client():
+    """Initializes and returns the OpenAI client."""
+    global OPENAI_API_KEY, OPENAI_BASE_URL
+    if not OPENAI_API_KEY:
+        # Try getting from environment variable first
+        OPENAI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+        if not OPENAI_API_KEY:
+            OPENAI_API_KEY = input(Fore.YELLOW + "Please enter your OpenAI API Key: " + Style.RESET_ALL) # Yellow prompt
+            if not OPENAI_API_KEY:
+                print(Fore.RED + "API Key is required. Exiting.") # Red error
+                sys.exit(1)
+
+    # Note: Adding try...except block here would be ideal for robust error handling with colors
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    print(Fore.BLUE + "OpenAI client initialized successfully.") # Blue status
+    return client
 
 def select_groq_model(models):
     """Uses 'pick' to let the user select a model."""
@@ -73,7 +91,7 @@ def select_groq_model(models):
         return "llama3-8b-8192" # Fallback default
 
 
-def generate_story_part(client, conversation_history, model="llama3-8b-8192"):
+def generate_story_part(client, conversation_history, model="microsoft/wizardlm-2-8x22b"): #default model for openrouter
     """Generates the next story part using Groq."""
     try:
         completion = client.chat.completions.create(
@@ -114,17 +132,18 @@ def get_initial_prompt():
 
 # --- Main Application ---
 def run_story_app():
-    groq_client, available_models = initialize_groq_client() # Correct unpacking
-    if not groq_client:
-        return # Exit if client initialization failed
+    # groq_client, available_models = initialize_groq_client() # Correct unpacking
+    # if not groq_client:
+    #     return # Exit if client initialization failed
 
-    selected_model = select_groq_model(available_models) # Call model selection
+    # selected_model = select_groq_model(available_models) # Call model selection
 
+    openai_client = initialize_openai_client()
     conversation = get_initial_prompt()
 
-    print(f"\nGenerating initial story part using {selected_model}...") # Indicate model used
+    # print(f"\nGenerating initial story part using {selected_model}...") # Indicate model used
     # Generate the very first part based on the initial prompt (system message)
-    initial_assistant_response = generate_story_part(groq_client, conversation, selected_model) # Pass selected model
+    initial_assistant_response = generate_story_part(  openai_client, conversation) # Pass selected model
 
     if initial_assistant_response:
         conversation.append({"role": "assistant", "content": initial_assistant_response})
@@ -145,9 +164,10 @@ def run_story_app():
         # Add user action to conversation
         conversation.append({"role": "user", "content": user_action})
 
-        print(f"\nGenerating next story part using {selected_model}...") # Indicate model used
+        # print(f"\nGenerating next story part using {selected_model}...") # Indicate model used
         # Generate next part based on the *entire* conversation history
-        next_part = generate_story_part(groq_client, conversation, selected_model) # Pass selected model
+        # next_part = generate_story_part(  openai_client, conversation, selected_model) # Pass selected model
+        next_part = generate_story_part(  openai_client, conversation) # Pass selected model
 
         if next_part:
             conversation.append({"role": "assistant", "content": next_part})
