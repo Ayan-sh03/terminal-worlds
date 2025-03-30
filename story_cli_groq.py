@@ -1,6 +1,7 @@
 import os
 import sys
 from groq import Groq, RateLimitError, APIError # Import necessary Groq classes
+from pick import pick # Add pick import
 
 # --- Configuration ---
 # Recommended: Load API key from environment variable
@@ -20,18 +21,50 @@ def initialize_groq_client():
             if not GROQ_API_KEY:
                 print("API Key is required. Exiting.")
                 sys.exit(1)
+
+    client = Groq(api_key=GROQ_API_KEY)
+    # Test connection and fetch models
+    print("Fetching available models...")
+    models_response = client.models.list()
+    # print(models_response)
+    # Filter for models likely suitable for chat/instruction-following and sort them
+    available_models = sorted([
+        model.id for model in models_response.data
+        if "chat" in model.id or "instruct" in model.id or "llama" in model.id or "mixtral" in model.id
+    ])
+    print(available_models)
+    if not available_models:
+            print("Warning: No suitable models found or failed to parse model list.")
+            # Let select_groq_model handle the default if list is empty
+            available_models = []
+
+    print("Groq client initialized successfully.")
+    return client, available_models # Return client and models
+
+
+def select_groq_model(models):
+    """Uses 'pick' to let the user select a model."""
+    if not models:
+        print("Could not fetch models or no suitable models found. Using default: llama3-8b-8192")
+        return "llama3-8b-8192" # Fallback default
+
+    title = "Please choose a Groq model (navigate with arrows, select with Enter):"
+    options = models
+    # Try to find a sensible default like llama3-8b
+    default_index = 0
     try:
-        client = Groq(api_key=GROQ_API_KEY)
-        # Test connection with a simple request (optional but good practice)
-        client.models.list()
-        print("Groq client initialized successfully.")
-        return client
-    except APIError as e:
-        print(f"Groq API Error during initialization or connection test: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"An unexpected error occurred during client initialization: {e}")
-        sys.exit(1)
+        # Attempt to find llama3-8b-8192 and set it as default if present
+        default_index = options.index("llama3-8b-8192")
+    except ValueError:
+        pass # Keep default_index 0 if llama3-8b isn't found
+
+    try:
+        selected_model, index = pick(options, title, indicator='=>', default_index=default_index)
+        print(f"Using model: {selected_model}")
+        return selected_model
+    except Exception as e: # Catch potential errors during pick usage (e.g., user Ctrl+C)
+        print(f"\nError during model selection or selection cancelled: {e}. Using default: llama3-8b-8192")
+        return "llama3-8b-8192" # Fallback default
 
 
 def generate_story_part(client, conversation_history, model="llama3-8b-8192"):
@@ -75,15 +108,17 @@ def get_initial_prompt():
 
 # --- Main Application ---
 def run_story_app():
-    groq_client = initialize_groq_client()
+    groq_client, available_models = initialize_groq_client() # Correct unpacking
     if not groq_client:
         return # Exit if client initialization failed
 
+    selected_model = select_groq_model(available_models) # Call model selection
+
     conversation = get_initial_prompt()
 
-    print("\nGenerating initial story part...")
+    print(f"\nGenerating initial story part using {selected_model}...") # Indicate model used
     # Generate the very first part based on the initial prompt (system message)
-    initial_assistant_response = generate_story_part(groq_client, conversation)
+    initial_assistant_response = generate_story_part(groq_client, conversation, selected_model) # Pass selected model
 
     if initial_assistant_response:
         conversation.append({"role": "assistant", "content": initial_assistant_response})
@@ -104,9 +139,9 @@ def run_story_app():
         # Add user action to conversation
         conversation.append({"role": "user", "content": user_action})
 
-        print("\nGenerating next story part...")
+        print(f"\nGenerating next story part using {selected_model}...") # Indicate model used
         # Generate next part based on the *entire* conversation history
-        next_part = generate_story_part(groq_client, conversation)
+        next_part = generate_story_part(groq_client, conversation, selected_model) # Pass selected model
 
         if next_part:
             conversation.append({"role": "assistant", "content": next_part})
