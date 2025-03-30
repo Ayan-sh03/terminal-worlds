@@ -91,7 +91,7 @@ def select_groq_model(models):
         return "llama3-8b-8192" # Fallback default
 
 
-def generate_story_part(client, conversation_history, model="microsoft/wizardlm-2-8x22b"): #default model for openrouter
+def generate_story_part(client, conversation_history, model="microsoft/wizardlm-2-8x22b:nitro"): #default model for openrouter
     """Generates the next story part using Groq."""
     try:
         completion = client.chat.completions.create(
@@ -104,6 +104,34 @@ def generate_story_part(client, conversation_history, model="microsoft/wizardlm-
             stream=False,
         )
         response_content = completion.choices[0].message.content
+        return response_content
+    except RateLimitError:
+        print(Fore.RED + "Rate limit reached. Please wait and try again.") # Red error
+        return None
+    except APIError as e:
+        print(Fore.RED + f"Groq API Error during generation: {e}") # Red error
+        return None
+    except Exception as e:
+        print(Fore.RED + f"An unexpected error occurred during generation: {e}") # Red error
+        return None
+
+
+def generate_story_part_stream(client, conversation_history, model="microsoft/wizardlm-2-8x22b:nitro"):
+    """Generates the next story part using Groq with streaming."""
+    try:
+        completion = client.chat.completions.create(
+            messages=conversation_history,
+            model=model,
+            temperature=0.7, # Adjust creativity
+            max_tokens=512, # Limit response length
+            top_p=1,
+            stop=None, # Can add stop sequences if needed
+            stream=True,
+        )
+        response_content = ""
+        for chunk in completion:
+            response_content += chunk.choices[0].delta.content
+            print(Fore.CYAN + chunk.choices[0].delta.content, end='', flush=True) # Print in cyan as it streams
         return response_content
     except RateLimitError:
         print(Fore.RED + "Rate limit reached. Please wait and try again.") # Red error
@@ -143,13 +171,14 @@ def run_story_app():
 
     # print(f"\nGenerating initial story part using {selected_model}...") # Indicate model used
     # Generate the very first part based on the initial prompt (system message)
-    initial_assistant_response = generate_story_part(  openai_client, conversation) # Pass selected model
+    # initial_assistant_response = generate_story_part(  openai_client, conversation) # Pass selected model
+    print(Fore.GREEN +"\n--- Story Start ---") #for streaming
+    initial_assistant_response = generate_story_part_stream(  openai_client, conversation) # Pass selected model
 
     if initial_assistant_response:
         conversation.append({"role": "assistant", "content": initial_assistant_response})
-        print("\n--- Story Start ---")
-        print(initial_assistant_response)
-        print("-------------------\n")
+        # print(initial_assistant_response)
+        print(Fore.GREEN + "\n-------------------\n")
     else:
         print("Failed to generate initial story part. Exiting.")
         return
@@ -172,7 +201,7 @@ def run_story_app():
         if next_part:
             conversation.append({"role": "assistant", "content": next_part})
             print("\n--- Story Continues ---")
-            print(next_part)
+            print(Fore.CYAN  + next_part)
             print("---------------------\n")
         else:
             print("Failed to generate the next part. Try again or type 'quit'.")
