@@ -1,2 +1,8 @@
 PLAN.md
 test.py
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+STORY_SAVE_PLAN.md
+story_*.json

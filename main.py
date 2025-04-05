@@ -4,6 +4,7 @@ from groq import Groq, RateLimitError, APIError # Import necessary Groq classes
 from pick import pick # Add pick import
 from colorama import init, Fore, Style # Import colorama
 from openai import OpenAI
+from story_utils import save_story
 # Initialize colorama
 init(autoreset=True) # Autoreset ensures color resets after each print
 
@@ -97,13 +98,18 @@ def generate_story_part(client, conversation_history, model="microsoft/wizardlm-
         completion = client.chat.completions.create(
             messages=conversation_history,
             model=model,
-            temperature=0.7, # Adjust creativity
+            temperature=0.8, # Adjust creativity
             max_tokens=512, # Limit response length
             top_p=1,
             stop=None, # Can add stop sequences if needed
-            stream=False,
+            stream=True,
         )
-        response_content = completion.choices[0].message.content
+
+        response_content = ""
+        for chunk in completion:
+            response_content += chunk.choices[0].delta.content
+            print(Fore.CYAN + chunk.choices[0].delta.content, end='', flush=True)
+        # response_content = completion.choices[0].message.content
         return response_content
     except RateLimitError:
         print(Fore.RED + "Rate limit reached. Please wait and try again.") # Red error
@@ -185,8 +191,14 @@ def run_story_app():
 
     # Interaction loop
     while True:
-        user_action = input("What do you do next? (Type 'quit' to exit): ")
-        if user_action.lower() == 'quit':
+        user_action = input("What do you do next? (Type 'save' to save, 'quit' to exit): ").strip().lower()
+        if user_action == 'save':
+            save_story(conversation)
+            continue
+        if user_action == 'quit':
+            save_choice = input("Do you want to save the story before exiting? (y/n): ").strip().lower()
+            if save_choice == 'y':
+                save_story(conversation)
             print("\nExiting story.")
             break
 
@@ -200,9 +212,9 @@ def run_story_app():
 
         if next_part:
             conversation.append({"role": "assistant", "content": next_part})
-            print("\n--- Story Continues ---")
-            print(Fore.CYAN  + next_part)
-            print("---------------------\n")
+            # print("\n--- Story Continues ---")
+            # print(Fore.CYAN  + next_part)
+            # print("---------------------\n")
         else:
             print("Failed to generate the next part. Try again or type 'quit'.")
             # Optional: remove the last user message if generation failed
