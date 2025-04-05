@@ -4,6 +4,11 @@ from groq import Groq, RateLimitError, APIError # Import necessary Groq classes
 from pick import pick # Add pick import
 from colorama import init, Fore, Style # Import colorama
 from openai import OpenAI
+import glob
+from story_utils import save_story, load_story
+from dotenv import load_dotenv
+load_dotenv()
+import os
 # Initialize colorama
 init(autoreset=True) # Autoreset ensures color resets after each print
 
@@ -97,13 +102,19 @@ def generate_story_part(client, conversation_history, model="microsoft/wizardlm-
         completion = client.chat.completions.create(
             messages=conversation_history,
             model=model,
-            temperature=0.7, # Adjust creativity
+            temperature=0.8, # Adjust creativity
             max_tokens=512, # Limit response length
             top_p=1,
             stop=None, # Can add stop sequences if needed
-            stream=False,
+            stream=True,
         )
-        response_content = completion.choices[0].message.content
+
+        response_content = ""
+        for chunk in completion:
+            response_content += chunk.choices[0].delta.content
+            print(Fore.CYAN + chunk.choices[0].delta.content, end='', flush=True)
+
+        # response_content = completion.choices[0].message.content
         return response_content
     except RateLimitError:
         print(Fore.RED + "Rate limit reached. Please wait and try again.") # Red error
@@ -117,17 +128,19 @@ def generate_story_part(client, conversation_history, model="microsoft/wizardlm-
 
 
 def generate_story_part_stream(client, conversation_history, model="microsoft/wizardlm-2-8x22b:nitro"):
-    """Generates the next story part using Groq with streaming."""
+    """Generates the next story part using OPENAI with streaming."""
     try:
         completion = client.chat.completions.create(
             messages=conversation_history,
             model=model,
-            temperature=0.7, # Adjust creativity
+            temperature=0.9, # Adjust creativity
             max_tokens=512, # Limit response length
             top_p=1,
             stop=None, # Can add stop sequences if needed
             stream=True,
         )
+        print("\n--- Story Continues ---")
+
         response_content = ""
         for chunk in completion:
             response_content += chunk.choices[0].delta.content
@@ -150,9 +163,10 @@ def get_initial_prompt():
     genre = input("Genre (e.g., fantasy, sci-fi): ")
     setting = input("Setting (e.g., a dark forest, a spaceship): ")
     situation = input("Starting situation: ")
-
+    base_prompt = os.getenv("SYSTEM_PROMPT", "")
     # Construct a system prompt
-    system_prompt = f"You are an interactive story generator. Create a compelling narrative in the {genre} genre, set in {setting}. The story begins with: {situation}. Continue the story based on user actions, keeping responses concise (around 1-3 paragraphs)."
+    user_details = f" The story is in the {genre} genre, set in {setting}. The story begins with: {situation}."
+    system_prompt = base_prompt + user_details
 
     # Return as the first message(s) in the conversation history
     return [{"role": "system", "content": system_prompt}]
@@ -167,11 +181,43 @@ def run_story_app():
     # selected_model = select_groq_model(available_models) # Call model selection
 
     openai_client = initialize_openai_client()
-    conversation = get_initial_prompt()
 
-    # print(f"\nGenerating initial story part using {selected_model}...") # Indicate model used
-    # Generate the very first part based on the initial prompt (system message)
-    # initial_assistant_response = generate_story_part(  openai_client, conversation) # Pass selected model
+    # Choose to start new or resume
+    options = ["Start a new story", "Resume a saved story"]
+    choice, _ = pick(options, "Choose an option:", indicator="=>")
+    if choice == "Resume a saved story":
+        saved_files = glob.glob("story_*.json")
+        if not saved_files:
+            print("No saved stories found. Starting a new story.")
+            conversation = get_initial_prompt()
+            # Generate initial story part below
+        else:
+            selected_file, _ = pick(saved_files, "Select a saved story to resume:", indicator="=>")
+            conversation = load_story(selected_file)
+            if not conversation:
+                print("Failed to load story. Starting a new story.")
+                conversation = get_initial_prompt()
+            else:
+                print(f"Resuming story from {selected_file}")
+                # Skip initial generation, jump to interaction loop
+                initial_assistant_response = conversation[-1]["content"] if conversation and conversation[-1]["role"] == "assistant" else ""
+                print(Fore.GREEN + "\n--- Story Resumed ---")
+                print(Fore.CYAN + initial_assistant_response)
+    else:
+        conversation = get_initial_prompt()
+
+    if len(conversation) == 1 and conversation[0]["role"] == "system":
+        print(Fore.GREEN + "\n--- Story Start ---")
+        initial_assistant_response = generate_story_part_stream(openai_client, conversation)
+        if initial_assistant_response:
+            conversation.append({"role": "assistant", "content": initial_assistant_response})
+            print(Fore.GREEN + "\n-------------------\n")
+        else:
+            print("Failed to generate initial story part. Exiting.")
+            return
+    else:
+        # Resumed story, skip initial generation
+        pass
     print(Fore.GREEN +"\n--- Story Start ---") #for streaming
     initial_assistant_response = generate_story_part_stream(  openai_client, conversation) # Pass selected model
 
@@ -185,8 +231,14 @@ def run_story_app():
 
     # Interaction loop
     while True:
-        user_action = input("What do you do next? (Type 'quit' to exit): ")
-        if user_action.lower() == 'quit':
+        user_action = input("What do you do next? (Type 'save' to save, 'quit' to exit): ").strip().lower()
+        if user_action == 'save':
+            save_story(conversation)
+            continue
+        if user_action == 'quit':
+            save_choice = input("Do you want to save the story before exiting? (y/n): ").strip().lower()
+            if save_choice == 'y':
+                save_story(conversation)
             print("\nExiting story.")
             break
 
@@ -200,8 +252,8 @@ def run_story_app():
 
         if next_part:
             conversation.append({"role": "assistant", "content": next_part})
-            print("\n--- Story Continues ---")
-            print(Fore.CYAN  + next_part)
+            # print("\n--- Story Continues ---")
+            # print(Fore.CYAN  + next_part)
             print("---------------------\n")
         else:
             print("Failed to generate the next part. Try again or type 'quit'.")
