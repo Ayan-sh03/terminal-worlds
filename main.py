@@ -6,6 +6,9 @@ from colorama import init, Fore, Style # Import colorama
 from openai import OpenAI
 import glob
 from story_utils import save_story, load_story
+from dotenv import load_dotenv
+load_dotenv()
+import os
 # Initialize colorama
 init(autoreset=True) # Autoreset ensures color resets after each print
 
@@ -130,7 +133,7 @@ def generate_story_part_stream(client, conversation_history, model="microsoft/wi
         completion = client.chat.completions.create(
             messages=conversation_history,
             model=model,
-            temperature=0.7, # Adjust creativity
+            temperature=0.9, # Adjust creativity
             max_tokens=512, # Limit response length
             top_p=1,
             stop=None, # Can add stop sequences if needed
@@ -160,9 +163,10 @@ def get_initial_prompt():
     genre = input("Genre (e.g., fantasy, sci-fi): ")
     setting = input("Setting (e.g., a dark forest, a spaceship): ")
     situation = input("Starting situation: ")
-
+    base_prompt = os.getenv("SYSTEM_PROMPT", "")
     # Construct a system prompt
-    system_prompt = f"You are an interactive story generator. Create a compelling narrative in the {genre} genre, set in {setting}. The story begins with: {situation}. Continue the story based on user actions, keeping responses concise (around 1-3 paragraphs)."
+    user_details = f" The story is in the {genre} genre, set in {setting}. The story begins with: {situation}."
+    system_prompt = base_prompt + user_details
 
     # Return as the first message(s) in the conversation history
     return [{"role": "system", "content": system_prompt}]

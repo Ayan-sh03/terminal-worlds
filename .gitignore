@@ -6,3 +6,4 @@ __pycache__/
 *.pyd
 STORY_SAVE_PLAN.md
 story_*.json
+.env
