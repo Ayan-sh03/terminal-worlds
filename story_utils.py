@@ -8,7 +8,24 @@ def save_story(conversation_history, filename=None):
     """
     if not filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"story_{timestamp}.json"
+
+        # Extract snippet from first system or assistant message
+        snippet = ""
+        for msg in conversation_history:
+            if msg.get("role") in ("system", "assistant"):
+                content = msg.get("content", "")
+                words = content.strip().split()
+                snippet = "_".join(words[:5]).lower()
+                # Remove punctuation and limit length
+                import re
+                snippet = re.sub(r'\W+', '_', snippet)
+                snippet = snippet[:20]
+                break
+
+        filename = f"story_{timestamp}"
+        if snippet:
+            filename += f"_{snippet}"
+        filename += ".json"
     try:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(conversation_history, f, ensure_ascii=False, indent=2)
