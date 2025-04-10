@@ -2,3 +2,4 @@ groq
 pick
 colorama
 openai
+python-dotenv

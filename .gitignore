@@ -7,3 +7,4 @@ __pycache__/
 STORY_SAVE_PLAN.md
 story_*.json
 .env
+UNDO_REDO_PLAN.md
