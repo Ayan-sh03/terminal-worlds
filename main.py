@@ -6,6 +6,7 @@ from colorama import init, Fore, Style # Import colorama
 from openai import OpenAI
 import glob
 from story_utils import save_story, load_story
+from undo_redo import ConversationHistoryManager
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -127,14 +128,14 @@ def generate_story_part(client, conversation_history, model="microsoft/wizardlm-
         return None
 
 
-def generate_story_part_stream(client, conversation_history, model="microsoft/wizardlm-2-8x22b:nitro"):
+def generate_story_part_stream(client, conversation_history, model="mistralai/mistral-nemo:nitro"):
     """Generates the next story part using OPENAI with streaming."""
     try:
         completion = client.chat.completions.create(
             messages=conversation_history,
             model=model,
             temperature=0.9, # Adjust creativity
-            max_tokens=512, # Limit response length
+            max_tokens=256, # Limit response length
             top_p=1,
             stop=None, # Can add stop sequences if needed
             stream=True,
@@ -174,12 +175,6 @@ def get_initial_prompt():
 
 # --- Main Application ---
 def run_story_app():
-    # groq_client, available_models = initialize_groq_client() # Correct unpacking
-    # if not groq_client:
-    #     return # Exit if client initialization failed
-
-    # selected_model = select_groq_model(available_models) # Call model selection
-
     openai_client = initialize_openai_client()
 
     # Choose to start new or resume
@@ -190,7 +185,6 @@ def run_story_app():
         if not saved_files:
             print("No saved stories found. Starting a new story.")
             conversation = get_initial_prompt()
-            # Generate initial story part below
         else:
             selected_file, _ = pick(saved_files, "Select a saved story to resume:", indicator="=>")
             conversation = load_story(selected_file)
@@ -199,18 +193,21 @@ def run_story_app():
                 conversation = get_initial_prompt()
             else:
                 print(f"Resuming story from {selected_file}")
-                # Skip initial generation, jump to interaction loop
                 initial_assistant_response = conversation[-1]["content"] if conversation and conversation[-1]["role"] == "assistant" else ""
                 print(Fore.GREEN + "\n--- Story Resumed ---")
                 print(Fore.CYAN + initial_assistant_response)
     else:
         conversation = get_initial_prompt()
 
-    if len(conversation) == 1 and conversation[0]["role"] == "system":
+    # Initialize undo/redo manager
+    history_manager = ConversationHistoryManager(conversation)
+
+    # Initial story part generation if needed
+    if len(history_manager.get_history()) == 1 and history_manager.get_history()[0]["role"] == "system":
         print(Fore.GREEN + "\n--- Story Start ---")
-        initial_assistant_response = generate_story_part_stream(openai_client, conversation)
+        initial_assistant_response = generate_story_part_stream(openai_client, history_manager.get_history())
         if initial_assistant_response:
-            conversation.append({"role": "assistant", "content": initial_assistant_response})
+            history_manager.add_message({"role": "assistant", "content": initial_assistant_response})
             print(Fore.GREEN + "\n-------------------\n")
         else:
             print("Failed to generate initial story part. Exiting.")
@@ -218,12 +215,11 @@ def run_story_app():
     else:
         # Resumed story, skip initial generation
         pass
-    print(Fore.GREEN +"\n--- Story Start ---") #for streaming
-    initial_assistant_response = generate_story_part_stream(  openai_client, conversation) # Pass selected model
 
+    print(Fore.GREEN + "\n--- Story Start ---")
+    initial_assistant_response = generate_story_part_stream(openai_client, history_manager.get_history())
     if initial_assistant_response:
-        conversation.append({"role": "assistant", "content": initial_assistant_response})
-        # print(initial_assistant_response)
+        history_manager.add_message({"role": "assistant", "content": initial_assistant_response})
         print(Fore.GREEN + "\n-------------------\n")
     else:
         print("Failed to generate initial story part. Exiting.")
@@ -231,35 +227,40 @@ def run_story_app():
 
     # Interaction loop
     while True:
-        user_action = input("What do you do next? (Type 'save' to save, 'quit' to exit): ").strip().lower()
+        user_action = input("What do you do next? (Type 'save', 'quit', 'undo', 'redo'): ").strip().lower()
         if user_action == 'save':
-            save_story(conversation)
+            save_story(history_manager.get_history())
             continue
         if user_action == 'quit':
             save_choice = input("Do you want to save the story before exiting? (y/n): ").strip().lower()
             if save_choice == 'y':
-                save_story(conversation)
+                save_story(history_manager.get_history())
             print("\nExiting story.")
             break
+        if user_action == 'undo':
+            success, msg = history_manager.undo()
+            print(msg)
+            continue
+        if user_action == 'redo':
+            success, msg = history_manager.redo()
+            print(msg)
+            continue
 
-        # Add user action to conversation
-        conversation.append({"role": "user", "content": user_action})
+        # Add user action to conversation and clear redo stack
+        history_manager.add_message({"role": "user", "content": user_action})
 
-        # print(f"\nGenerating next story part using {selected_model}...") # Indicate model used
         # Generate next part based on the *entire* conversation history
-        # next_part = generate_story_part(  openai_client, conversation, selected_model) # Pass selected model
-        next_part = generate_story_part(  openai_client, conversation) # Pass selected model
+        next_part = generate_story_part_stream(openai_client, history_manager.get_history())
 
         if next_part:
-            conversation.append({"role": "assistant", "content": next_part})
-            # print("\n--- Story Continues ---")
-            # print(Fore.CYAN  + next_part)
+            history_manager.add_message({"role": "assistant", "content": next_part})
             print("---------------------\n")
         else:
             print("Failed to generate the next part. Try again or type 'quit'.")
             # Optional: remove the last user message if generation failed
-            if conversation[-1]["role"] == "user":
-                 conversation.pop()
+            if history_manager.get_history()[-1]["role"] == "user":
+                # Undo the last user message if generation failed
+                history_manager.undo()
 
 
 # --- Entry Point ---
